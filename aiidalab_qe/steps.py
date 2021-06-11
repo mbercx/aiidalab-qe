@@ -98,9 +98,11 @@ class WorkChainSettings(ipw.VBox):
         )
         self.bands_run.observe(self.set_bands_button_style, "value")
 
-        self.run_pdos = ipw.ToggleButton(
-            description="Calculate density of states",
+        self.pdos_run = ipw.ToggleButton(
+            description="Density of States",
+            button_style=self.button_style_off,
         )
+        self.pdos_run.observe(self.set_pdos_button_style, "value")
 
         # Work chain protocol.
         self.workchain_protocol = ipw.ToggleButtons(
@@ -116,6 +118,7 @@ class WorkChainSettings(ipw.VBox):
                     children=[self.geo_opt_run, self.geo_opt_type],
                 ),
                 self.bands_run,
+                self.pdos_run,
                 self.properties_help,
                 self.protocol_title,
                 ipw.HTML("Select the protocol:", layout=ipw.Layout(flex="1 1 auto")),
@@ -132,6 +135,10 @@ class WorkChainSettings(ipw.VBox):
     def set_bands_button_style(self, change):
         button_style = self.button_style_on if change.new else self.button_style_off
         self.bands_run.button_style = button_style
+
+    def set_pdos_button_style(self, change):
+        button_style = self.button_style_on if change.new else self.button_style_off
+        self.pdos_run.button_style = button_style
 
 
 class MaterialSettings(ipw.VBox):
@@ -238,6 +245,82 @@ class KpointSettings(ipw.VBox):
         )
 
 
+class SmearingSettings(ipw.VBox):
+
+    # TODO: smearing settings should only be visible for metals
+
+    # The defaults of `smearing` and `degauss` must be linked to the `electronic_type`
+    smearing_settings_default = traitlets.Dict(
+        default_value={"smearing": "cold", "degauss": 0.01}
+    )
+    smearing = traitlets.Float(allow_none=True)
+    degauss = traitlets.Float(allow_none=True)
+
+    smearing_settings_description = ipw.HTML(
+        """<p>
+        TODO
+    </p>"""
+    )
+
+    def __init__(self, **kwargs):
+
+        self._set_smearing_automatically = ipw.Checkbox(
+            description="Use default smearing settings.",
+            indent=False,
+            value=True,
+        )
+        self._smearing = ipw.Dropdown(
+            options=["gaussian", "methfessel-paxton", "cold", "fermi-dirac"],
+            value=self.smearing_settings_default["smearing"],
+            description="Smearing method:",
+            disabled=False,
+            style={"description_width": "initial"},
+        )
+        ipw.dlink(
+            (self._set_smearing_automatically, "value"),
+            (self._smearing, "disabled"),
+        )
+        self._smearing.observe(self.set_smearing_trait, "value")
+        self._set_smearing_automatically.observe(self.set_smearing_trait, "value")
+        self._degauss = ipw.FloatText(
+            value=self.smearing_settings_default["degauss"],
+            step=0.005,
+            description="Smearing value:",
+            disabled=False,
+            style={"description_width": "initial"},
+        )
+        ipw.dlink(
+            (self._set_smearing_automatically, "value"),
+            (self._smearing, "disabled"),
+        )
+        self._degauss.observe(self.set_degauss_trait, "value")
+        self._set_smearing_automatically.observe(self.set_degauss_trait, "value")
+        super().__init__(
+            children=[
+                self.smearing_settings_description,
+                ipw.HBox(
+                    [self._set_kpoints_distance_automatically, self._kpoints_distance]
+                ),
+            ],
+            layout=ipw.Layout(justify_content="space-between"),
+            **kwargs
+        )
+
+    def set_smearing_trait(self, _=None):
+        self.kpoints_distance = (
+            self.smearing_settings_default["smearing"]
+            if self._set_smearing_automatically.value
+            else self._smearing.value
+        )
+
+    def set_degauss_trait(self, _=None):
+        self.kpoints_distance = (
+            self.smearing_settings_default["degauss"]
+            if self._set_smearing_automatically.value
+            else self._degauss.value
+        )
+
+
 class CodeSettings(ipw.VBox):
 
     codes_title = ipw.HTML(
@@ -322,7 +405,7 @@ class SubmitQeAppWorkChainStep(ipw.VBox, WizardAppWidgetStep):
         self.codes_selector.pw.observe(self._update_state, "selected_code")
         self.codes_selector.dos.observe(self._update_state, "selected_code")
         self.codes_selector.projwfc.observe(self._update_state, "selected_code")
-        self.workchain_settings.run_pdos.observe(self._update_state, "value")
+        self.workchain_settings.pdos_run.observe(self._update_state, "value")
 
         self.tab = ipw.Tab(
             children=[
@@ -369,6 +452,19 @@ class SubmitQeAppWorkChainStep(ipw.VBox, WizardAppWidgetStep):
                 ipw.HBox([self.submit_button, self.expert_mode_control]),
             ]
         )
+        protocol_kpoints_distance_mapping = {
+            "fast": 0.5,
+            "moderate": 0.15,
+            "precise": 0.2,
+        }
+        ipw.dlink(
+            (self.workchain_settings.workchain_protocol, "value"),
+            (self.kpoints_settings, "kpoints_distance_default"),
+            transform=lambda p: protocol_kpoints_distance_mapping[p],
+        )
+        self.workchain_settings.workchain_protocol.observe(
+            self.kpoints_settings.set_kpoints_distance_trait, "value"
+        )
 
     @traitlets.observe("expert_mode")
     def _observe_expert_mode(self, change):
@@ -410,7 +506,7 @@ class SubmitQeAppWorkChainStep(ipw.VBox, WizardAppWidgetStep):
             return self.State.READY
 
         # PDOS run requested, but codes are not specified.
-        if self.workchain_settings.run_pdos.value:
+        if self.workchain_settings.pdos_run.value:
             if self.codes_selector.dos.selected_code is None:
                 return self.State.READY
             if self.codes_selector.projwfc.selected_code is None:
@@ -457,14 +553,14 @@ class SubmitQeAppWorkChainStep(ipw.VBox, WizardAppWidgetStep):
         self.workchain_settings.geo_opt_run.observe(update, ["value"])
         self.workchain_settings.geo_opt_type.observe(update, ["value"])
         self.workchain_settings.bands_run.observe(update, ["value"])
-        self.workchain_settings.run_pdos.observe(update, ["value"])
+        self.workchain_settings.pdos_run.observe(update, ["value"])
         # Codes
         self.codes_selector.dos.observe(update, ["selected_code"])
         self.codes_selector.projwfc.observe(update, ["selected_code"])
         self.codes_selector.pw.observe(update, ["selected_code"])
         # Material settings
-        self.kpoints_settings.observe(update, ["electronic_type"])
-        self.kpoints_settings.observe(update, ["spin_type"])
+        self.material_settings.observe(update, ["electronic_type"])
+        self.material_settings.observe(update, ["spin_type"])
         # Calculation settings
         self.workchain_settings.workchain_protocol.observe(update, ["value"])
         self.kpoints_settings.observe(update, ["kpoints_distance"])
@@ -520,15 +616,15 @@ class SubmitQeAppWorkChainStep(ipw.VBox, WizardAppWidgetStep):
                     relax_type=RelaxType[self.workchain_settings.geo_opt_type.value]
                     if self.workchain_settings.geo_opt_run.value
                     else RelaxType["NONE"],
-                    run_bands=self.workchain_settings.bands_run.value,
-                    run_pdos=self.workchain_settings.run_pdos.value,
+                    bands_run=self.workchain_settings.bands_run.value,
+                    pdos_run=self.workchain_settings.pdos_run.value,
                     # Codes
                     dos_code=self.codes_selector.dos.selected_code,
                     projwfc_code=self.codes_selector.projwfc.selected_code,
                     pw_code=self.codes_selector.pw.selected_code,
                     # Material settings
-                    electronic_type=self.kpoints_settings.electronic_type,
-                    spin_type=self.kpoints_settings.spin_type,
+                    electronic_type=self.material_settings.electronic_type,
+                    spin_type=self.material_settings.spin_type,
                     # Calculation settings
                     kpoints_distance_override=self.kpoints_settings.kpoints_distance,
                     protocol=self.workchain_settings.workchain_protocol.value,
@@ -552,8 +648,8 @@ class SubmitQeAppWorkChainStep(ipw.VBox, WizardAppWidgetStep):
             self.workchain_settings.geo_opt_run.value = (
                 relax_type is not RelaxType["NONE"]
             )
-            self.workchain_settings.bands_run.value = bp["run_bands"]
-            self.workchain_settings.run_pdos.value = bp["run_pdos"]
+            self.workchain_settings.bands_run.value = bp["bands_run"]
+            self.workchain_settings.pdos_run.value = bp["pdos_run"]
             # Codes
             self.codes_selector.dos.selected_code = bp.get("dos_code")
             self.codes_selector.projwfc.selected_code = bp.get("projwfc_code")
@@ -574,17 +670,40 @@ class SubmitQeAppWorkChainStep(ipw.VBox, WizardAppWidgetStep):
 
         builder_parameters = self.builder_parameters.copy()
 
-        run_bands = builder_parameters.pop("run_bands")
-        run_pdos = builder_parameters.pop("run_pdos")
+        bands_run = builder_parameters.pop("bands_run")
+        pdos_run = builder_parameters.pop("pdos_run")
 
-        builder = QeAppWorkChain.get_builder_from_protocol(
-            structure=self.input_structure,
-            **self._deserialize_builder_parameters(builder_parameters)
-        )
+        builder_parameters = self._deserialize_builder_parameters(builder_parameters)
 
-        if not run_bands:
+        # Temporary workaround for `ElectronicType` issue
+        # See https://github.com/aiidateam/aiida-quantumespresso/issues/685
+
+        def update_pwbaseworkchains(builder):
+            for wc in [
+                builder["relax"]["base"],
+                builder["bands"]["scf"],
+                builder["bands"]["bands"],
+                builder["pdos"]["scf"],
+            ]:
+                wc["pw"]["parameters"]["SYSTEM"]["occupations"] = "fixed"
+                wc["pw"]["parameters"]["SYSTEM"].pop("smearing")
+                wc["pw"]["parameters"]["SYSTEM"].pop("degauss")
+
+        if builder_parameters["electronic_type"] == ElectronicType.INSULATOR:
+            builder_parameters["electronic_type"] = ElectronicType.METAL
+            builder = QeAppWorkChain.get_builder_from_protocol(
+                structure=self.input_structure, **builder_parameters
+            )
+            update_pwbaseworkchains(builder)
+        else:
+            builder = QeAppWorkChain.get_builder_from_protocol(
+                structure=self.input_structure, **builder_parameters
+            )
+        # End of workaround
+
+        if not bands_run:
             builder.pop("bands")
-        if not run_pdos:
+        if not pdos_run:
             builder.pop("pdos")
 
         resources = {

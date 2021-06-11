@@ -2,8 +2,8 @@
 
 ## Properties
 relax_type: positions_cell
-run_bands: false
-run_pdos: false
+bands_run: false
+pdos_run: false
 
 ## Codes
 dos_code: dos@localhost

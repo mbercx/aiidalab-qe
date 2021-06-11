@@ -29,14 +29,14 @@ def _generate_report_dict(qeapp_wc):
     builder_parameters = qeapp_wc.get_extra("builder_parameters", {})
 
     # Properties
-    run_relax = builder_parameters["relax_type"] != "none"
-    run_bands = builder_parameters["run_bands"]
-    run_pdos = builder_parameters["run_pdos"]
+    relax_run = builder_parameters["relax_type"] != "none"
+    bands_run = builder_parameters["bands_run"]
+    pdos_run = builder_parameters["pdos_run"]
 
-    yield "relaxed", run_relax
+    yield "relaxed", relax_run
     yield "relax_method", builder_parameters["relax_type"].upper()
-    yield "bands_computed", run_bands
-    yield "pdos_computed", run_pdos
+    yield "bands_computed", bands_run
+    yield "pdos_computed", pdos_run
 
     # Material settings
     yield "material_magnetic", builder_parameters["spin_type"].title()
@@ -75,13 +75,17 @@ def _generate_report_dict(qeapp_wc):
     bands_kpoints_distance = None
     nscf_kpoints_distance = None
 
-    if run_relax:
+    if relax_run:
         pw_parameters = qeapp_wc.inputs.relax.base.pw.parameters.get_dict()
         scf_kpoints_distance = qeapp_wc.inputs.relax.base.kpoints_distance.value
-    if run_bands:
+    if bands_run:
         pw_parameters = qeapp_wc.inputs.bands.scf.pw.parameters.get_dict()
         scf_kpoints_distance = qeapp_wc.inputs.bands.scf.kpoints_distance.value
         bands_kpoints_distance = qeapp_wc.inputs.bands.bands_kpoints_distance.value
+    if pdos_run:
+        pw_parameters = qeapp_wc.inputs.pdos.scf.pw.parameters.get_dict()
+        scf_kpoints_distance = qeapp_wc.inputs.pdos.scf.kpoints_distance.value
+        nscf_kpoints_distance = qeapp_wc.inputs.pdos.nscf.kpoints_distance.value
 
     energy_cutoff_wfc = round(pw_parameters["SYSTEM"]["ecutwfc"])
     energy_cutoff_rho = round(pw_parameters["SYSTEM"]["ecutrho"])
