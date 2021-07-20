@@ -27,6 +27,7 @@ from aiidalab_qe.widgets import NodeViewWidget, ResourceSelectionWidget
 from aiidalab_qe_workchain import QeAppWorkChain
 
 StructureData = DataFactory("structure")
+Float = DataFactory("float")
 
 
 def update_resources(builder, resources):
@@ -178,7 +179,7 @@ class KpointSettings(ipw.VBox):
         self._kpoints_distance = ipw.FloatText(
             value=self.kpoints_distance_default,
             step=0.05,
-            description="K-points distance:",
+            description="K-points distance (1/Å):",
             disabled=False,
             style={"description_width": "initial"},
         )
@@ -210,6 +211,8 @@ class KpointSettings(ipw.VBox):
             if self._set_kpoints_distance_automatically.value
             else self._kpoints_distance.value
         )
+        if self._set_kpoints_distance_automatically.value:
+            self._kpoints_distance.value = self.kpoints_distance_default
 
 
 class CodeSettings(ipw.VBox):
@@ -280,6 +283,13 @@ class SubmitQeAppWorkChainStep(ipw.VBox, WizardAppWidgetStep):
         self.codes_selector.pw.observe(self._update_state, "selected_code")
         self.codes_selector.pw.observe(
             self._set_num_mpi_tasks_to_default, "selected_code"
+        )
+
+        self.workchain_settings.workchain_protocol.observe(
+            self._observe_kpoints_default, "value"
+        )
+        self.workchain_settings.workchain_protocol.observe(
+            self.kpoints_settings.set_kpoints_distance_trait, "value"
         )
 
         self.tab = ipw.Tab(
@@ -464,6 +474,13 @@ class SubmitQeAppWorkChainStep(ipw.VBox, WizardAppWidgetStep):
         self._update_state()
         self._set_num_mpi_tasks_to_default()
 
+    def _observe_kpoints_default(self, change):
+
+        protocol_kpoints_dict = {"fast": 0.5, "moderate": 0.15, "precise": 0.1}
+        self.kpoints_settings.kpoints_distance_default = protocol_kpoints_dict[
+            change["new"]
+        ]
+
     @traitlets.observe("process")
     def _observe_process(self, change):
         with self.hold_trait_notifications():
@@ -586,6 +603,10 @@ class SubmitQeAppWorkChainStep(ipw.VBox, WizardAppWidgetStep):
             structure=self.input_structure,
             **self._deserialize_builder_parameters(builder_parameters),
         )
+        if builder_parameters.get("kpoints_distance_override") is not None:
+            builder.kpoints_distance_override = Float(
+                builder_parameters.pop("kpoints_distance_override")
+            )
 
         if not run_bands:
             builder.pop("bands")
